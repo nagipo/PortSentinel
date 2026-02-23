@@ -13,9 +13,9 @@ import (
 	"port_sentinel/internal/ports"
 	"port_sentinel/internal/store"
 
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
@@ -25,6 +25,7 @@ import (
 func Run() error {
 	cfg, _ := store.LoadConfig()
 	state := NewState(cfg)
+	svc := NewDefaultService(state)
 
 	fyneApp := app.NewWithID("portsentinel")
 	w := fyneApp.NewWindow("Port Sentinel")
@@ -37,7 +38,7 @@ func Run() error {
 
 	refreshAll := func() {
 		go func() {
-			_, err := RefreshAll(state)
+			_, err := svc.RefreshAll()
 			fyne.Do(func() {
 				if err != nil {
 					status.SetText(fmt.Sprintf("Refresh failed: %v", err))
@@ -106,7 +107,7 @@ func Run() error {
 			pinCheck.OnChanged = nil
 			pinCheck.SetChecked(pinned)
 			pinCheck.OnChanged = func(val bool) {
-				if err := TogglePinAndSave(state, port, val); err != nil {
+				if err := svc.TogglePinAndSave(port, val); err != nil {
 					status.SetText(fmt.Sprintf("Pin update failed: %v", err))
 					return
 				}
@@ -138,7 +139,7 @@ func Run() error {
 
 			refreshBtn.OnTapped = func() {
 				go func() {
-					_, err := RefreshOne(state, port)
+					_, err := svc.RefreshOne(port)
 					fyne.Do(func() {
 						if err != nil {
 							status.SetText(fmt.Sprintf("Refresh %d failed: %v", port, err))
@@ -154,7 +155,7 @@ func Run() error {
 			if result.Status == ports.StatusInUse && result.PID > 0 {
 				killBtn.Enable()
 				killBtn.OnTapped = func() {
-					showKillDialog(fyneApp, w, state, result, status, list)
+					showKillDialog(fyneApp, w, svc, state, result, status, list)
 				}
 			}
 		},
@@ -173,7 +174,7 @@ func Run() error {
 			status.SetText("Invalid port.")
 			return
 		}
-		if err := AddCustomPortAndSave(state, port); err != nil {
+		if err := svc.AddCustomPortAndSave(port); err != nil {
 			status.SetText(fmt.Sprintf("Add failed: %v", err))
 			return
 		}
@@ -191,37 +192,43 @@ func Run() error {
 	intervalSelect.SetSelected(fmt.Sprintf("%ds", cfg.UI.AutoRefreshIntervalMs/1000))
 
 	autoRefresh := widget.NewCheck("Auto Refresh", func(checked bool) {
-		UpdateUIConfig(state, func(c *store.Config) error {
+		if err := svc.UpdateUIConfig(func(c *store.Config) error {
 			c.UI.AutoRefreshEnabled = checked
 			return nil
-		})
-	applyAutoRefresh(fyneApp, refresher, state, intervalSelect.Selected, checked, list, status)
+		}); err != nil {
+			status.SetText(fmt.Sprintf("Auto refresh update failed: %v", err))
+			return
+		}
+		applyAutoRefresh(fyneApp, refresher, svc, intervalSelect.Selected, checked, list, status)
 	})
 	autoRefresh.SetChecked(cfg.UI.AutoRefreshEnabled)
 
 	intervalSelect.OnChanged = func(value string) {
-		UpdateUIConfig(state, func(c *store.Config) error {
+		if err := svc.UpdateUIConfig(func(c *store.Config) error {
 			c.UI.AutoRefreshIntervalMs = parseIntervalMs(value)
 			return nil
-		})
-		applyAutoRefresh(fyneApp, refresher, state, value, autoRefresh.Checked, list, status)
+		}); err != nil {
+			status.SetText(fmt.Sprintf("Interval update failed: %v", err))
+			return
+		}
+		applyAutoRefresh(fyneApp, refresher, svc, value, autoRefresh.Checked, list, status)
 	}
 
 	settingsBtn := widget.NewButton("Ports & Settings", func() {
-		showSettingsDialog(fyneApp, w, state, list, status)
+		showSettingsDialog(fyneApp, w, svc, state, list, status)
 	})
 
 	top := container.NewHBox(portEntryWrap, addBtn, refreshAllBtn, autoRefresh, intervalSelect, settingsBtn)
 	content := container.NewBorder(top, status, nil, nil, container.NewBorder(rowHeader, nil, nil, nil, list))
 	w.SetContent(content)
 
-	applyAutoRefresh(fyneApp, refresher, state, intervalSelect.Selected, autoRefresh.Checked, list, status)
+	applyAutoRefresh(fyneApp, refresher, svc, intervalSelect.Selected, autoRefresh.Checked, list, status)
 	w.SetOnClosed(func() {
 		refresher.Stop()
 	})
 
 	status.SetText("Loading ports...")
-	if _, err := RefreshAll(state); err != nil {
+	if _, err := svc.RefreshAll(); err != nil {
 		status.SetText(fmt.Sprintf("Initial refresh failed: %v", err))
 	} else {
 		status.SetText("Ready.")
@@ -231,11 +238,11 @@ func Run() error {
 	return nil
 }
 
-func applyAutoRefresh(app fyne.App, refresher *AutoRefresher, state *State, interval string, enabled bool, list *widget.List, status *widget.Label) {
+func applyAutoRefresh(app fyne.App, refresher *AutoRefresher, svc *Service, interval string, enabled bool, list *widget.List, status *widget.Label) {
 	intervalMs := parseIntervalMs(interval)
 	if enabled {
 		refresher.Start(time.Duration(intervalMs)*time.Millisecond, func() {
-			_, err := RefreshAll(state)
+			_, err := svc.RefreshAll()
 			fyne.Do(func() {
 				if err != nil {
 					status.SetText(fmt.Sprintf("Auto refresh failed: %v", err))
@@ -248,8 +255,8 @@ func applyAutoRefresh(app fyne.App, refresher *AutoRefresher, state *State, inte
 	}
 }
 
-func showSettingsDialog(app fyne.App, w fyne.Window, state *State, list *widget.List, status *widget.Label) {
-	cfg := state.Config
+func showSettingsDialog(app fyne.App, w fyne.Window, svc *Service, state *State, list *widget.List, status *widget.Label) {
+	cfg := state.SnapshotConfig()
 	presetBox := container.NewVBox()
 	presetPorts := make([]int, 0, len(cfg.PresetPorts))
 	for port := range cfg.PresetPorts {
@@ -261,7 +268,7 @@ func showSettingsDialog(app fyne.App, w fyne.Window, state *State, list *widget.
 		p := port
 		checked := enabled
 		check := widget.NewCheck(fmt.Sprintf("%d", port), func(val bool) {
-			if err := TogglePresetAndSave(state, p, val); err != nil {
+			if err := svc.TogglePresetAndSave(p, val); err != nil {
 				status.SetText(fmt.Sprintf("Preset update failed: %v", err))
 				return
 			}
@@ -275,7 +282,7 @@ func showSettingsDialog(app fyne.App, w fyne.Window, state *State, list *widget.
 	for _, port := range cfg.CustomPorts {
 		p := port
 		row := container.NewHBox(widget.NewLabel(strconv.Itoa(port)), widget.NewButton("Remove", func() {
-			if err := RemoveCustomPortAndSave(state, p); err != nil {
+			if err := svc.RemoveCustomPortAndSave(p); err != nil {
 				status.SetText(fmt.Sprintf("Remove failed: %v", err))
 				return
 			}
@@ -286,10 +293,12 @@ func showSettingsDialog(app fyne.App, w fyne.Window, state *State, list *widget.
 	}
 
 	forceKill := widget.NewCheck("Force terminate by default", func(val bool) {
-		UpdateUIConfig(state, func(c *store.Config) error {
+		if err := svc.UpdateUIConfig(func(c *store.Config) error {
 			c.UI.ForceKillEnabled = val
 			return nil
-		})
+		}); err != nil {
+			status.SetText(fmt.Sprintf("Force terminate update failed: %v", err))
+		}
 	})
 	forceKill.SetChecked(cfg.UI.ForceKillEnabled)
 
@@ -306,9 +315,10 @@ func showSettingsDialog(app fyne.App, w fyne.Window, state *State, list *widget.
 	dialog.NewCustom("Ports & Settings", "Close", content, w).Show()
 }
 
-func showKillDialog(app fyne.App, w fyne.Window, state *State, result ports.PortScanResult, status *widget.Label, list *widget.List) {
+func showKillDialog(app fyne.App, w fyne.Window, svc *Service, state *State, result ports.PortScanResult, status *widget.Label, list *widget.List) {
 	force := widget.NewCheck("Force terminate", nil)
-	force.SetChecked(state.Config.UI.ForceKillEnabled)
+	cfg := state.SnapshotConfig()
+	force.SetChecked(cfg.UI.ForceKillEnabled)
 
 	message := fmt.Sprintf("Terminate PID %d (%s) on port %d?", result.PID, result.ProcessName, result.Port)
 	content := container.NewVBox(widget.NewLabel(message), force)
@@ -317,14 +327,14 @@ func showKillDialog(app fyne.App, w fyne.Window, state *State, result ports.Port
 			return
 		}
 		go func() {
-			err := KillProcess(result.PID, force.Checked)
+			err := svc.KillProcess(result.PID, force.Checked)
 			fyne.Do(func() {
 				if err != nil {
 					status.SetText(fmt.Sprintf("Terminate failed: %v", err))
 				} else {
 					status.SetText(fmt.Sprintf("Terminated PID %d.", result.PID))
 				}
-				RefreshAll(state)
+				_, _ = svc.RefreshAll()
 				list.Refresh()
 			})
 		}()

@@ -38,6 +38,12 @@ func (s *State) UpdateConfig(cfg store.Config) {
 	s.Ports = buildPortsList(cfg)
 }
 
+func (s *State) SnapshotConfig() store.Config {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneConfig(s.Config)
+}
+
 func (s *State) GetPorts() []int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -183,4 +189,34 @@ func buildPortsList(cfg store.Config) []int {
 	sort.Ints(rest)
 
 	return append(pinned, rest...)
+}
+
+func cloneConfig(cfg store.Config) store.Config {
+	out := cfg
+
+	if cfg.PresetPorts != nil {
+		out.PresetPorts = make(map[int]bool, len(cfg.PresetPorts))
+		for k, v := range cfg.PresetPorts {
+			out.PresetPorts[k] = v
+		}
+	} else {
+		out.PresetPorts = map[int]bool{}
+	}
+
+	if cfg.CustomPorts != nil {
+		out.CustomPorts = append([]int(nil), cfg.CustomPorts...)
+	} else {
+		out.CustomPorts = []int{}
+	}
+
+	if cfg.PinnedPorts != nil {
+		out.PinnedPorts = make(map[int]bool, len(cfg.PinnedPorts))
+		for k, v := range cfg.PinnedPorts {
+			out.PinnedPorts[k] = v
+		}
+	} else {
+		out.PinnedPorts = map[int]bool{}
+	}
+
+	return out
 }
