@@ -1,0 +1,25 @@
+# Go build artifacts
+/bin/
+/dist/
+/coverage/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.cov
+
+# Fyne artifacts
+fyne_settings.json
+fyne.log
+
+# Go cache (local)
+/.gocache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
