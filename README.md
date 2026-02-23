@@ -4,6 +4,14 @@ Cross-platform TCP port watcher built with Go + Fyne.
 
 中文版文件: `README_zh-TW.md`
 
+## Background & Technology Rationale
+
+- This project was created as an experiment using the Codex CLI.
+- I am not a Go engineer and have only basic familiarity with the language; the code has not undergone manual review.
+- The topic was selected to address a practical work-related pain point.
+- Go was chosen to avoid runtime dependencies such as Node.js or the JVM, and to produce a single self-contained executable. For this scope, Go also offers a manageable development environment and code complexity.
+- Fyne was selected as a lightweight UI toolkit to avoid a more complex architecture such as Web UI plus a Go backend.
+
 ## Features
 
 - Monitor TCP ports with status (FREE / IN_USE / UNKNOWN).
