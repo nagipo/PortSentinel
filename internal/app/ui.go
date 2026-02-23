@@ -5,6 +5,7 @@ package app
 import (
 	"fmt"
 	"image/color"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -130,7 +131,7 @@ func Run() error {
 				pidLabel.SetText("-")
 			}
 			procLabel.SetText(ellipsis(result.ProcessName, 18))
-			cmdLabel.SetText(ellipsis(firstNonEmpty(result.CommandLine, result.ExePath), 32))
+			cmdLabel.SetText(ellipsis(maskSensitiveArgs(firstNonEmpty(result.CommandLine, result.ExePath)), 32))
 			if !result.UpdatedAt.IsZero() {
 				updatedLabel.SetText(result.UpdatedAt.Local().Format("15:04:05"))
 			} else {
@@ -319,11 +320,27 @@ func showKillDialog(app fyne.App, w fyne.Window, svc *Service, state *State, res
 	force := widget.NewCheck("Force terminate", nil)
 	cfg := state.SnapshotConfig()
 	force.SetChecked(cfg.UI.ForceKillEnabled)
+	ack := widget.NewCheck("I understand this may terminate critical system/app processes", nil)
 
 	message := fmt.Sprintf("Terminate PID %d (%s) on port %d?", result.PID, result.ProcessName, result.Port)
-	content := container.NewVBox(widget.NewLabel(message), force)
+	exePath := firstNonEmpty(strings.TrimSpace(result.ExePath), "-")
+	cmdPreview := ellipsis(maskSensitiveArgs(strings.TrimSpace(result.CommandLine)), 96)
+	if cmdPreview == "" {
+		cmdPreview = "-"
+	}
+	content := container.NewVBox(
+		widget.NewLabel(message),
+		widget.NewLabel("Executable: "+exePath),
+		widget.NewLabel("Command: "+cmdPreview),
+		force,
+		ack,
+	)
 	dialog.NewCustomConfirm("Terminate Process", "Terminate", "Cancel", content, func(ok bool) {
 		if !ok {
+			return
+		}
+		if !ack.Checked {
+			status.SetText("Please acknowledge risk before terminating the process.")
 			return
 		}
 		go func() {
@@ -384,4 +401,16 @@ func parseIntervalMs(s string) int {
 	default:
 		return 5000
 	}
+}
+
+var sensitiveArgPattern = regexp.MustCompile(`(?i)\b(password|passwd|pwd|token|secret|api[_-]?key)\s*[:=]\s*([^\s]+)`)
+var bearerTokenPattern = regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9\-._~+/]+=*)`)
+
+func maskSensitiveArgs(input string) string {
+	if strings.TrimSpace(input) == "" {
+		return input
+	}
+	masked := sensitiveArgPattern.ReplaceAllString(input, "$1=***")
+	masked = bearerTokenPattern.ReplaceAllString(masked, "bearer ***")
+	return masked
 }

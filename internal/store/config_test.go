@@ -2,7 +2,9 @@ package store
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +47,50 @@ func TestConfigLoadSave(t *testing.T) {
 	}
 	if cfg.UI.ForceKillEnabled != loaded.UI.ForceKillEnabled {
 		t.Fatalf("force kill mismatch")
+	}
+}
+
+func TestSaveConfigDoesNotLeaveTempFileAndReplacesContent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("APPDATA", tmp)
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("HOME", tmp)
+
+	first := DefaultConfig()
+	first.CustomPorts = []int{1111}
+	if err := SaveConfig(first); err != nil {
+		t.Fatalf("first SaveConfig failed: %v", err)
+	}
+
+	second := DefaultConfig()
+	second.CustomPorts = []int{2222, 3333}
+	second.UI.AutoRefreshEnabled = true
+	if err := SaveConfig(second); err != nil {
+		t.Fatalf("second SaveConfig failed: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !reflect.DeepEqual(second.CustomPorts, loaded.CustomPorts) {
+		t.Fatalf("expected replaced custom ports: %+v vs %+v", second.CustomPorts, loaded.CustomPorts)
+	}
+	if loaded.UI.AutoRefreshEnabled != second.UI.AutoRefreshEnabled {
+		t.Fatalf("expected replaced ui config")
+	}
+
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath failed: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "config-") && strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Fatalf("found unexpected temp config file: %s", entry.Name())
+		}
 	}
 }

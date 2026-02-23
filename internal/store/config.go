@@ -5,14 +5,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"port_sentinel/internal/ports"
 )
 
 type UIConfig struct {
-	AutoRefreshEnabled   bool `json:"autoRefreshEnabled"`
+	AutoRefreshEnabled    bool `json:"autoRefreshEnabled"`
 	AutoRefreshIntervalMs int  `json:"autoRefreshIntervalMs"`
-	ForceKillEnabled     bool `json:"forceKillEnabled"`
+	ForceKillEnabled      bool `json:"forceKillEnabled"`
 }
 
 type Config struct {
@@ -28,9 +29,9 @@ func DefaultConfig() Config {
 		CustomPorts: []int{},
 		PinnedPorts: map[int]bool{},
 		UI: UIConfig{
-			AutoRefreshEnabled:   false,
+			AutoRefreshEnabled:    false,
 			AutoRefreshIntervalMs: 5000,
-			ForceKillEnabled:     false,
+			ForceKillEnabled:      false,
 		},
 	}
 }
@@ -79,12 +80,40 @@ func SaveConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	tmpFile, err := os.CreateTemp(dir, "config-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil && !errors.Is(err, os.ErrPermission) {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(path)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	return nil
 }

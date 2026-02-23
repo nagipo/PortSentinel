@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"os"
 
 	"port_sentinel/internal/ports"
 	"port_sentinel/internal/store"
@@ -53,6 +54,9 @@ func (s *Service) RefreshOne(port int) (ports.PortScanResult, error) {
 }
 
 func (s *Service) KillProcess(pid int, force bool) error {
+	if pid == os.Getpid() {
+		return errors.New("refusing to terminate Port Sentinel itself")
+	}
 	return s.scanner.KillPID(pid, force)
 }
 
