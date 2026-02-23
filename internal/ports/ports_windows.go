@@ -40,6 +40,8 @@ func ScanPorts(ports []int) ([]PortScanResult, error) {
 		return results, netstat.Err
 	}
 	infoMap := parseWindowsNetstat(util.CleanOutput(netstat.Stdout))
+	procInfoCache := map[int]ProcessInfo{}
+	procErrCache := map[int]string{}
 
 	for _, port := range ports {
 		res := PortScanResult{
@@ -53,11 +55,19 @@ func ScanPorts(ports []int) ([]PortScanResult, error) {
 			res.PID = info.PID
 			res.LocalAddress = info.LocalAddress
 			if info.PID > 0 {
-				if pinfo, err := GetProcessInfo(info.PID); err == nil {
+				if pinfo, ok := procInfoCache[info.PID]; ok {
+					res.ProcessName = pinfo.ProcessName
+					res.CommandLine = pinfo.CommandLine
+					res.ExePath = pinfo.ExePath
+				} else if errMsg, ok := procErrCache[info.PID]; ok {
+					res.Error = errMsg
+				} else if pinfo, err := GetProcessInfo(info.PID); err == nil {
+					procInfoCache[info.PID] = pinfo
 					res.ProcessName = pinfo.ProcessName
 					res.CommandLine = pinfo.CommandLine
 					res.ExePath = pinfo.ExePath
 				} else {
+					procErrCache[info.PID] = err.Error()
 					res.Error = err.Error()
 				}
 			}

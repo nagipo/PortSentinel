@@ -10,7 +10,7 @@ import (
 )
 
 type State struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	Config  store.Config
 	Ports   []int
 	Results map[int]ports.PortScanResult
@@ -39,14 +39,14 @@ func (s *State) UpdateConfig(cfg store.Config) {
 }
 
 func (s *State) SnapshotConfig() store.Config {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return cloneConfig(s.Config)
 }
 
 func (s *State) GetPorts() []int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	portsCopy := make([]int, 0, len(s.Ports))
 	portsCopy = append(portsCopy, s.Ports...)
 	return portsCopy
@@ -73,8 +73,8 @@ func (s *State) SetResults(results []ports.PortScanResult) {
 }
 
 func (s *State) SnapshotResults() []ports.PortScanResult {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]ports.PortScanResult, 0, len(s.Ports))
 	for _, port := range s.Ports {
 		if res, ok := s.Results[port]; ok {
@@ -154,8 +154,8 @@ func (s *State) TogglePin(port int, pinned bool) {
 }
 
 func (s *State) IsPinned(port int) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.Config.PinnedPorts != nil && s.Config.PinnedPorts[port]
 }
 

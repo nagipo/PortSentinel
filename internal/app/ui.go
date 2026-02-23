@@ -36,6 +36,7 @@ func Run() error {
 	status.Wrapping = fyne.TextWrapWord
 
 	refresher := &AutoRefresher{}
+	var list *widget.List
 
 	refreshAll := func() {
 		go func() {
@@ -46,6 +47,7 @@ func Run() error {
 				} else {
 					status.SetText("Refreshed.")
 				}
+				list.Refresh()
 			})
 		}()
 	}
@@ -61,7 +63,6 @@ func Run() error {
 		widget.NewLabelWithStyle("Actions", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 	)
 
-	var list *widget.List
 	list = widget.NewList(
 		func() int {
 			return len(state.GetPorts())
@@ -186,7 +187,6 @@ func Run() error {
 
 	refreshAllBtn := widget.NewButtonWithIcon("Refresh All", theme.ViewRefreshIcon(), func() {
 		refreshAll()
-		list.Refresh()
 	})
 
 	intervalSelect := widget.NewSelect([]string{"2s", "5s", "10s"}, nil)
@@ -359,8 +359,8 @@ func showKillDialog(app fyne.App, w fyne.Window, svc *Service, state *State, res
 }
 
 func getResult(state *State, port int) ports.PortScanResult {
-	state.mu.Lock()
-	defer state.mu.Unlock()
+	state.mu.RLock()
+	defer state.mu.RUnlock()
 	if res, ok := state.Results[port]; ok {
 		return res
 	}
